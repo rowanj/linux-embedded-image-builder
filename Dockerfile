@@ -9,20 +9,22 @@ RUN apt-get install -y build-essential flex bison git
 
 FROM REQUIREMENTS as CROSS
 
-RUN apt-get install -y crossbuild-essential-arm64 pkg-config-aarch64-linux-gnu
+RUN apt-get install -y crossbuild-essential-arm64 pkg-config-aarch64-linux-gnu bc
 ENV CROSS_COMPILE=aarch64-linux-gnu-
+ENV ARCH=arm64
 
 FROM CROSS as ATF
 
 WORKDIR /data
 RUN git clone https://github.com/ARM-software/arm-trusted-firmware.git
+
 WORKDIR /data/arm-trusted-firmware
 # RUN make PLAT=sun50i_a64 DEBUG=1 bl31
 RUN make PLAT=sun50i_a64 bl31
 
-FROM CROSS
+FROM CROSS as UBOOT
 
-RUN apt-get install -y python3 python3-distutils python3-dev swig bc device-tree-compiler
+RUN apt-get install -y python3 python3-distutils python3-dev swig device-tree-compiler
 
 WORKDIR /data
 RUN git clone https://github.com/u-boot/u-boot.git
@@ -34,4 +36,60 @@ ENV BL31=/data/bl31.bin
 
 WORKDIR /data/u-boot
 RUN make nanopi_a64_defconfig
+RUN cat .config
 RUN make -j 16
+
+FROM CROSS as KERNEL
+
+RUN useradd -u 1000 builder
+
+WORKDIR /data
+RUN chown builder:builder /data
+
+USER builder
+COPY linux-5.6.2.tar.xz /data
+RUN tar Jxf linux-* ; rm *.xz ; mv linux-* linux-source
+WORKDIR /data/linux-source
+
+USER root
+RUN apt-get update; apt-get install -y libssl-dev kmod
+
+USER builder
+RUN make defconfig
+RUN make -j16 Image
+RUN make -j16 modules
+RUN make modules_install INSTALL_MOD_PATH=/data/modules
+
+FROM CROSS as IMAGES
+
+COPY --from=KERNEL /data/modules /data/modules
+ADD alpine-uboot-3.10.3-aarch64.tar.gz /data/alpine
+
+RUN apt-get install -y cpio squashfs-tools
+
+RUN mkdir /data/initramfs
+WORKDIR /data/initramfs
+RUN gunzip -c /data/alpine/boot/initramfs-vanilla | cpio --extract
+RUN find /data/modules -type f -iname '*.ko' -exec aarch64-linux-gnu-strip --strip-debug {} \;
+RUN rm -rf /data/initramfs/lib/modules/* && mv /data/modules/lib/modules/* /data/initramfs/lib/modules/
+RUN find . | cpio -H newc -o > /data/initramfs.cpio
+WORKDIR /data
+RUN cat initramfs.cpio | gzip > initramfs.igz
+RUN mkdir /data/squashfs-root \
+    && mv /data/initramfs/lib/modules /data/squashfs-root/ \
+    && mksquashfs /data/squashfs-root modloop.squashfs -b 1048576 -comp xz -Xdict-size 100%
+
+FROM alpine
+
+WORKDIR /data
+COPY --from=UBOOT /data/u-boot/u-boot-sunxi-with-spl.bin /data/
+COPY --from=UBOOT /data/u-boot/arch/arm/dts/sun50i-a64-nanopi-a64.dtb /data/
+COPY --from=KERNEL /data/linux-source/arch/arm64/boot/Image /data/
+COPY --from=KERNEL /data/linux-source/vmlinux /data/
+COPY --from=IMAGES /data/alpine/boot ./boot
+COPY --from=IMAGES /data/initramfs.igz ./
+COPY --from=IMAGES /data/modloop.squashfs ./
+
+RUN rm /data/boot/*-vanilla
+
+CMD ["/bin/echo", "No command"]

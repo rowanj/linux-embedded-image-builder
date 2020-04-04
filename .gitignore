@@ -1,1 +1,3 @@
-*.bin
+output/
+void-*.xz
+linux-*.tar.xz
