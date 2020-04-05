@@ -62,22 +62,18 @@ RUN make modules_install INSTALL_MOD_PATH=/data/modules
 
 FROM CROSS as IMAGES
 
+RUN apt-get install -y cpio
+
 COPY --from=KERNEL /data/modules /data/modules
-ADD alpine-uboot-3.10.3-aarch64.tar.gz /data/alpine
 
-RUN apt-get install -y cpio squashfs-tools
 
-RUN mkdir /data/initramfs
+RUN mkdir -p /data/initramfs/lib/modules
 WORKDIR /data/initramfs
-RUN gunzip -c /data/alpine/boot/initramfs-vanilla | cpio --extract
 RUN find /data/modules -type f -iname '*.ko' -exec aarch64-linux-gnu-strip --strip-debug {} \;
 RUN rm -rf /data/initramfs/lib/modules/* && mv /data/modules/lib/modules/* /data/initramfs/lib/modules/
 RUN find . | cpio -H newc -o > /data/initramfs.cpio
 WORKDIR /data
 RUN cat initramfs.cpio | gzip > initramfs.igz
-RUN mkdir /data/squashfs-root \
-    && mv /data/initramfs/lib/modules /data/squashfs-root/ \
-    && mksquashfs /data/squashfs-root modloop.squashfs -b 1048576 -comp xz -Xdict-size 100%
 
 FROM alpine
 
@@ -86,10 +82,7 @@ COPY --from=UBOOT /data/u-boot/u-boot-sunxi-with-spl.bin /data/
 COPY --from=UBOOT /data/u-boot/arch/arm/dts/sun50i-a64-nanopi-a64.dtb /data/
 COPY --from=KERNEL /data/linux-source/arch/arm64/boot/Image /data/
 COPY --from=KERNEL /data/linux-source/vmlinux /data/
-COPY --from=IMAGES /data/alpine/boot ./boot
 COPY --from=IMAGES /data/initramfs.igz ./
-COPY --from=IMAGES /data/modloop.squashfs ./
-
-RUN rm /data/boot/*-vanilla
+COPY --from=IMAGES /data/initramfs/lib/modules /data/modules
 
 CMD ["/bin/echo", "No command"]

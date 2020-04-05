@@ -12,35 +12,19 @@ cp extlinux.conf output/extlinux/
 
 docker run --name u-boot_product localhost/u-boot
 
-docker cp u-boot_product:/data/boot ./output/boot
+
+docker cp u-boot_product:/data/modules ./output/modules
 
 mkdir -p output/boot/dtbs/allwinner/
 docker cp u-boot_product:/data/sun50i-a64-nanopi-a64.dtb ./output/boot/dtbs/allwinner/
 
 docker cp u-boot_product:/data/Image ./output/boot/vmlinuz-mainline
 docker cp u-boot_product:/data/initramfs.igz ./output/boot/initramfs-mainline
-docker cp u-boot_product:/data/modloop.squashfs ./output/boot/modloop-mainline
 
 docker cp u-boot_product:/data/u-boot-sunxi-with-spl.bin ./output/
 
 docker rm u-boot_product
 
-
-
-# (
-#     cd output/
-#     mkdir initramfs
-#     (
-#         cd initramfs
-#         gunzip -c ../initramfs.igz | cpio --extract
-#     )
-
-#     mkdir modloop
-#     (
-#         cd modloop
-#         unsquashfs ../modloop.squashfs
-#     )
-# )
 
 cat > output/install.sh <<- EOM
 #!/bin/bash
@@ -63,11 +47,13 @@ sudo mkfs.vfat "\${DEVICE}1"
 sudo mkfs.ext4 "\${DEVICE}2"
 sudo mount "\${DEVICE}2" "\${MOUNTPOINT}"
 
-#sudo cp -rv boot extlinux "\${MOUNTPOINT}"
-BASE=\$(PWD)
+sudo cp -rv boot extlinux "\${MOUNTPOINT}"
+BASE=\$(pwd)
 (
     cd "\${MOUNTPOINT}"
-    tar xvf "\${BASE}/../void-aarch64-ROOTFS-20181111.tar.xz"
+    sudo tar xvf "\${BASE}/../void-aarch64-musl-ROOTFS-20191109.tar.xz"
+    sudo ln -s /etc/sv/agetty-ttyS0 etc/runit/runsvdir/default
+    sudo cp -rv "\${BASE}/modules" lib/
 )
 
 sudo umount "\${MOUNTPOINT}"
