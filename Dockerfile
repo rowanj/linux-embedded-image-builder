@@ -44,7 +44,7 @@ ENV BL31=/data/bl31.bin
 
 WORKDIR /data/u-boot
 RUN make nanopi_a64_defconfig
-ARG NCPUS=16
+ARG NCPUS=4
 RUN make -j ${NCPUS}
 
 
@@ -67,7 +67,7 @@ WORKDIR /data/linux-source
 # build and install the kernel image and modules
 # config should be taken care of by the cross-compiler environment
 RUN make defconfig
-ARG NCPUS=16
+ARG NCPUS=4
 RUN make -j ${NCPUS} Image
 RUN make -j ${NCPUS} modules
 RUN make modules_install INSTALL_MOD_PATH=/data/modules
